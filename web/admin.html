@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识库管理台 · 向量库可视化</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f0f4f0; color: #2b3a2e; }
+  header { background: #2e7d4f; color: #fff; padding: 14px 24px; display: flex; align-items: baseline; gap: 12px; }
+  header h1 { font-size: 17px; }
+  header small { opacity: .8; font-size: 12px; }
+  header a { color: #cde8d5; font-size: 12px; margin-left: auto; text-decoration: none; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 20px 16px 40px; }
+  section { background: #fff; border: 1px solid #e2e8e2; border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; }
+  section h2 { font-size: 15px; margin-bottom: 14px; color: #2e7d4f; }
+
+  /* 统计卡片 */
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; }
+  .stat { flex: 1; min-width: 120px; background: #f6faf6; border: 1px solid #e2ece2; border-radius: 10px; padding: 14px; text-align: center; }
+  .stat .num { font-size: 26px; font-weight: 700; color: #2e7d4f; }
+  .stat .label { font-size: 12px; color: #7a8a7d; margin-top: 4px; }
+
+  /* 来源分布条形 */
+  .srcbar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+  .srcbar .name { width: 160px; text-align: right; color: #5a6a5e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .srcbar .track { flex: 1; background: #eef3ee; border-radius: 5px; height: 18px; position: relative; }
+  .srcbar .fill { background: #57a773; height: 100%; border-radius: 5px; min-width: 2px; }
+  .srcbar .cnt { width: 34px; font-variant-numeric: tabular-nums; color: #5a6a5e; }
+
+  /* 检索调试 */
+  .dbg { display: flex; gap: 8px; margin-bottom: 6px; }
+  .dbg input { flex: 1; padding: 10px 14px; border: 1px solid #cfdccf; border-radius: 10px; font-size: 14px; outline: none; }
+  .dbg input:focus { border-color: #2e7d4f; }
+  .dbg button { padding: 0 18px; background: #2e7d4f; color: #fff; border: none; border-radius: 10px; cursor: pointer; font-size: 14px; }
+  .dbgmeta { font-size: 12px; color: #8a9a8d; margin-bottom: 12px; }
+  .hit { border: 1px solid #e2ece2; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  .hit .top { display: flex; align-items: center; gap: 10px; font-size: 13px; margin-bottom: 6px; }
+  .hit .src { color: #5a6a5e; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 20px; }
+  .badge.ok { background: #e2f3e7; color: #2e7d4f; }
+  .badge.no { background: #f6e8e6; color: #b0483e; }
+  .scoretrack { flex: 1; position: relative; background: #eef3ee; height: 16px; border-radius: 4px; }
+  .scorefill { height: 100%; border-radius: 4px; background: #57a773; }
+  .scorefill.low { background: #c9a0a0; }
+  .threshold-line { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #b0483e; }
+  .scorenum { width: 58px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .hit .content { font-size: 13px; color: #4a5a4e; line-height: 1.6; white-space: pre-wrap; }
+
+  /* 切片浏览 */
+  .chunk { border: 1px solid #e2ece2; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  .chunk .meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #7a8a7d; margin-bottom: 6px; flex-wrap: wrap; }
+  .tag { background: #e2f3e7; color: #2e7d4f; padding: 2px 8px; border-radius: 20px; font-size: 11px; }
+  .chunk .content { font-size: 13px; line-height: 1.7; color: #4a5a4e; white-space: pre-wrap; max-height: 66px; overflow: hidden; position: relative; }
+  .chunk .content.open { max-height: none; }
+  .expand { font-size: 12px; color: #2e7d4f; cursor: pointer; margin-top: 4px; display: inline-block; }
+  .vecbars { display: flex; align-items: flex-end; gap: 1px; height: 28px; margin-top: 8px; }
+  .vecbars div { width: 6px; background: #9cc4aa; border-radius: 1px; }
+  .veclabel { font-size: 11px; color: #9aab9d; margin-top: 4px; }
+  .loading { color: #8a9a8d; font-size: 13px; padding: 8px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>知识库管理台</h1><small>向量库数据可视化 · RAG 检索调试</small>
+  <a href="/">← 返回问答页</a>
+</header>
+<div class="wrap">
+
+  <section>
+    <h2>📊 概览</h2>
+    <div class="stats" id="stats"><div class="loading">加载中…</div></div>
+    <div id="srcdist" style="margin-top:16px"></div>
+  </section>
+
+  <section>
+    <h2>🔍 检索调试器</h2>
+    <div class="dbg">
+      <input id="dq" placeholder="输入一个问题，查看会命中哪些知识切片…" value="糖尿病人能吃红薯吗">
+      <button onclick="debugSearch()">检索</button>
+    </div>
+    <div class="dbgmeta" id="dmeta">红线为置信度阈值，低于阈值的切片不会注入 Prompt</div>
+    <div id="dresults"></div>
+  </section>
+
+  <section>
+    <h2>📚 切片浏览</h2>
+    <div id="chunks"><div class="loading">加载中…</div></div>
+  </section>
+
+</div>
+<script>
+let CHUNKS = [], DIM = 0, THRESHOLD = 0.35;
+
+async function loadAll() {
+  const [health, data] = await Promise.all([
+    fetch('/api/v1/health').then(r => r.json()),
+    fetch('/api/v1/chunks').then(r => r.json())
+  ]);
+  CHUNKS = data.chunks || []; DIM = data.dim || 0;
+
+  // 统计卡片
+  const sources = {};
+  CHUNKS.forEach(c => sources[c.source] = (sources[c.source] || 0) + 1);
+  const cache = health.cache;
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="num">${data.total}</div><div class="label">知识切片总数</div></div>
+    <div class="stat"><div class="num">${DIM}</div><div class="label">向量维度</div></div>
+    <div class="stat"><div class="num">${Object.keys(sources).length}</div><div class="label">来源文档数</div></div>
+    <div class="stat"><div class="num">${cache ? cache.hit_rate : '—'}</div><div class="label">缓存命中率</div></div>
+    <div class="stat"><div class="num">${cache ? cache.hits + '/' + cache.misses : '—'}</div><div class="label">缓存命中/未命中</div></div>`;
+
+  // 来源分布
+  const max = Math.max(...Object.values(sources));
+  document.getElementById('srcdist').innerHTML = Object.entries(sources).map(([name, cnt]) => `
+    <div class="srcbar"><div class="name">${name}</div>
+    <div class="track"><div class="fill" style="width:${(cnt/max*100).toFixed(1)}%"></div></div>
+    <div class="cnt">${cnt}</div></div>`).join('');
+
+  renderChunks();
+}
+
+function renderChunks() {
+  document.getElementById('chunks').innerHTML = CHUNKS.map((c, i) => {
+    const norm = Math.sqrt(c.vector.reduce((s, v) => s + v*v, 0));
+    const preview = c.vector.slice(0, 24);
+    const maxAbs = Math.max(...preview.map(Math.abs)) || 1;
+    const bars = preview.map(v => `<div style="height:${(Math.abs(v)/maxAbs*100).toFixed(0)}%"></div>`).join('');
+    return `<div class="chunk">
+      <div class="meta"><span class="tag">${c.source}</span><span>ID: ${c.id.slice(0,13)}…</span>
+      <span>维度 ${c.vector.length}</span><span>L2 范数 ${norm.toFixed(3)}</span></div>
+      <div class="content" id="ct${i}">${c.content}</div>
+      <span class="expand" onclick="document.getElementById('ct${i}').classList.toggle('open')">展开/收起</span>
+      <div class="vecbars">${bars}</div>
+      <div class="veclabel">向量前 24 维预览（共 ${c.vector.length} 维）</div>
+    </div>`;
+  }).join('') || '<div class="loading">向量库为空，请先调用 /api/v1/ingest 导入知识</div>';
+}
+
+async function debugSearch() {
+  const q = document.getElementById('dq').value.trim();
+  if (!q) return;
+  const box = document.getElementById('dresults');
+  box.innerHTML = '<div class="loading">向量化并检索中…</div>';
+  const t0 = performance.now();
+  const data = await fetch('/api/v1/debug/search?q=' + encodeURIComponent(q)).then(r => r.json());
+  if (data.error) { box.innerHTML = `<div class="loading">⚠️ ${data.error}</div>`; return; }
+  THRESHOLD = data.threshold;
+  const total = ((performance.now() - t0)).toFixed(0);
+  document.getElementById('dmeta').textContent =
+    `向量化耗时 ${data.embed_ms}ms，端到端 ${total}ms，阈值 ${data.threshold}（红线），共 ${data.results.length} 条候选`;
+  box.innerHTML = data.results.map(r => `
+    <div class="hit">
+      <div class="top">
+        <span class="badge ${r.adopted ? 'ok' : 'no'}">${r.adopted ? '✅ 注入Prompt' : '❌ 低于阈值'}</span>
+        <span class="src">${r.source}</span>
+        <div class="scoretrack">
+          <div class="scorefill ${r.adopted ? '' : 'low'}" style="width:${(r.score*100).toFixed(1)}%"></div>
+          <div class="threshold-line" style="left:${(data.threshold*100).toFixed(1)}%"></div>
+        </div>
+        <span class="scorenum">${r.score.toFixed(3)}</span>
+      </div>
+      <div class="content">${r.content}</div>
+    </div>`).join('') || '<div class="loading">无候选结果</div>';
+}
+
+loadAll().catch(e => {
+  document.getElementById('stats').innerHTML = `<div class="loading">⚠️ 加载失败：${e.message}</div>`;
+});
+document.getElementById('dq').addEventListener('keydown', e => { if (e.key === 'Enter') debugSearch(); });
+</script>
+</body>
+</html>

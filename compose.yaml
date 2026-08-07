@@ -1,0 +1,34 @@
+# AI 健康顾问智能客服 —— 基础设施编排
+# 用法：docker compose up -d
+# 注意：相比手动 docker run，这里补上了数据卷持久化（容器重建不丢向量数据）与健康检查
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: ai-advisor-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC（预留）
+    volumes:
+      - qdrant_data:/qdrant/storage
+    # Qdrant 镜像内无 curl/wget，健康状态用 API 从宿主机侧验证：
+    # curl http://localhost:6333/healthz
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-advisor-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes   # AOF 持久化：缓存可丢，会话历史尽量留
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  qdrant_data:
+  redis_data:
