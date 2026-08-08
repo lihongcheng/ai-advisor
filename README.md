@@ -1,27 +1,35 @@
 # AI 健康顾问智能客服（RAG MVP）
 
 基于公司内部知识库的智能问答系统，面向科原健康中老年营养食疗课程用户。
-技术栈：**Golang + DeepSeek API + Embedding（BGE-M3）+ 向量数据库（local / Qdrant）+ SSE 流式输出**。
+技术栈：**Golang + DeepSeek API + Embedding（BGE-M3）+ 向量数据库（local / Qdrant）+ 语义缓存与会话（local / Redis）+ SSE 流式输出**。
 
 ## 系统架构
 
 ```
-用户提问
+用户提问（带 session_id）
    │
    ▼
-POST /api/v1/chat ──────────────┐
-   │                            │
-   ▼                            │
-问题向量化（Embedding API）       │
-   │                            │
-   ▼                            │
-向量数据库 TopK 检索 + 阈值过滤   │
-   │                            │
-   ▼                            │
-Prompt 组装（系统人设+知识注入）  │
-   │                            │
-   ▼                            │
-DeepSeek API 流式生成 ──────────┘
+POST /api/v1/chat ───────────────────────────┐
+   │                                         │
+   ▼                                         │
+问题向量化（Embedding API，一次调用两处复用）    │
+   │                                         │
+   ▼                                         │
+语义答案缓存查询（local/Redis，按问题向量相似度） │
+   │                                         │
+   ├─ 命中（≥0.92 且首轮/单轮）→ 直接返回缓存答案 ┤
+   │                                         │
+   ▼ 未命中 / 有会话历史（skip）                │
+向量数据库 TopK 检索 + 阈值过滤                │
+   │                                         │
+   ▼                                         │
+Prompt 组装（系统人设 + 多轮历史 + 知识注入）    │
+   │                                         │
+   ▼                                         │
+DeepSeek API 流式生成 ────────────────────────┘
+   │
+   ├─ 首轮/单轮 → 写入语义缓存
+   └─ 写入会话历史（Redis LIST，滑动 TTL）
    │
    ▼
 SSE 逐 token 推送给前端（附引用来源）
