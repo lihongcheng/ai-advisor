@@ -113,8 +113,11 @@ func (p *Pipeline) Answer(question string, history []llm.Message, onToken func(t
 	}
 	embedDur := time.Since(embedStart)
 
-	// 2. 热点答案缓存：语义相似命中则直接返回，跳过检索 + LLM，省一次 DeepSeek 调用
-	if p.cache != nil {
+	// 2. 热点答案缓存：语义相似命中则直接返回，跳过检索 + LLM，省一次 DeepSeek 调用。
+	// 仅在无会话历史（单轮/首轮）时启用：追问句的答案依赖上下文，
+	// 若按问题向量命中缓存会返回与其他会话上下文错配的答案（缓存 key 不含历史）。
+	useCache := p.cache != nil && len(history) == 0
+	if useCache {
 		if answer, sources, score, ok := p.cache.Lookup(queryVec); ok {
 			log.Printf("[rag] q=%q cache=hit score=%.3f total=%dms（跳过检索与LLM）",
 				question, score, time.Since(totalStart).Milliseconds())
@@ -152,13 +155,18 @@ func (p *Pipeline) Answer(question string, history []llm.Message, onToken func(t
 		return contexts, "", err
 	}
 
-	// 5. 写缓存：空答案不缓存，避免把异常响应沉淀进缓存
-	if p.cache != nil && strings.TrimSpace(answer) != "" {
+	// 5. 写缓存：空答案不缓存（避免异常响应沉淀）；带历史生成的答案同样不缓存——
+	// 它可能依赖当前会话上下文，若入库会被其他会话/首问的相同问题命中，造成错配。
+	if useCache && strings.TrimSpace(answer) != "" {
 		p.cache.Store(question, queryVec, answer, contexts)
 	}
 
-	log.Printf("[rag] q=%q cache=miss embed=%dms search=%dms hits=%d ttft=%dms gen=%dms total=%dms",
-		question, embedDur.Milliseconds(), searchDur.Milliseconds(), len(contexts),
+	cacheTag := "miss"
+	if !useCache && p.cache != nil {
+		cacheTag = "skip(context)" // 有会话历史，主动绕过缓存
+	}
+	log.Printf("[rag] q=%q cache=%s embed=%dms search=%dms hits=%d ttft=%dms gen=%dms total=%dms",
+		question, cacheTag, embedDur.Milliseconds(), searchDur.Milliseconds(), len(contexts),
 		ttft.Milliseconds(), genDur.Milliseconds(), time.Since(totalStart).Milliseconds())
 	return contexts, answer, nil
 }
