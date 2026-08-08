@@ -108,7 +108,7 @@ async function ask() {
         const data = JSON.parse(line.slice(5));
         if (curEvent === 'token') { answer += data.token; bubble.textContent = answer; }
         else if (curEvent === 'sources') { sources = data; }
-        else if (curEvent === 'error') { bubble.textContent = '⚠️ ' + data.message; }
+        else if (curEvent === 'error') { bubble.textContent = answer ? answer + '\n\n⚠️ ' + data.message : '⚠️ ' + data.message; }
         chat.scrollTop = chat.scrollHeight;
       }
     }
