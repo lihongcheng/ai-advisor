@@ -3,11 +3,13 @@ package llm
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Message 一条对话消息
@@ -24,12 +26,24 @@ type DeepSeekClient struct {
 	http    *http.Client
 }
 
+// 流式请求的超时设计：
+//   - ResponseHeaderTimeout：连接建立后等待响应头（≈首 token 前置耗时）的上限，
+//     DeepSeek 高峰期排队僵死时快速失败，而不是无限等待；
+//   - 整体 ctx 超时：流式生成中途僵死（连接活着但不吐字）的兜底，
+//     正常长回答一般几十秒内完成，120s 足够宽裕。
+const (
+	headerTimeout  = 30 * time.Second
+	overallTimeout = 120 * time.Second
+)
+
 func NewDeepSeekClient(apiKey, baseURL, model string) *DeepSeekClient {
 	return &DeepSeekClient{
 		apiKey:  apiKey,
 		baseURL: baseURL,
 		model:   model,
-		http:    &http.Client{}, // 流式请求不设整体超时，由调用方控制
+		http: &http.Client{
+			Transport: &http.Transport{ResponseHeaderTimeout: headerTimeout},
+		},
 	}
 }
 
@@ -46,7 +60,9 @@ func (c *DeepSeekClient) ChatStream(messages []Message, onToken func(token strin
 		return "", fmt.Errorf("DEEPSEEK_API_KEY 未配置")
 	}
 	body, _ := json.Marshal(chatRequest{Model: c.model, Messages: messages, Stream: true})
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	ctx, cancel := context.WithTimeout(context.Background(), overallTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}

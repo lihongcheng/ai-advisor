@@ -87,10 +87,15 @@ func isNetError(err error) bool {
 	return !strings.HasPrefix(err.Error(), "redis 错误:")
 }
 
+// cmdTimeout 每条命令的读写总超时：Redis 僵死时避免 goroutine 永久阻塞
+const cmdTimeout = 3 * time.Second
+
 func (c *Client) doLocked(args ...string) (any, error) {
 	if err := c.connect(); err != nil {
 		return nil, err
 	}
+	// 每次命令前刷新读写 deadline（覆盖 conn.Write 与 parseReply 的读取）
+	_ = c.conn.SetDeadline(time.Now().Add(cmdTimeout))
 	// 编码命令：*N\r\n$len\r\narg\r\n...
 	var b strings.Builder
 	fmt.Fprintf(&b, "*%d\r\n", len(args))

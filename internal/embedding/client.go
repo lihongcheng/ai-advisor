@@ -24,7 +24,7 @@ func NewClient(apiKey, baseURL, model string) *Client {
 		apiKey:  apiKey,
 		baseURL: baseURL,
 		model:   model,
-		http:    &http.Client{Timeout: 60 * time.Second},
+		http:    &http.Client{Timeout: 20 * time.Second}, // 请求路径上的外部调用，快速失败
 	}
 }
 
@@ -39,11 +39,26 @@ type embedResponse struct {
 	} `json:"data"`
 }
 
-// Embed 批量向量化文本，返回与输入一一对应的向量
+// Embed 批量向量化文本，返回与输入一一对应的向量。
+// 失败重试一次（轻微退避）：Embedding 在问答主路径上，
+// 偶发网络抖动不应直接转化为用户可见的错误。
 func (c *Client) Embed(texts []string) ([][]float32, error) {
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("EMBEDDING_API_KEY 未配置")
 	}
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		vectors, err := c.embedOnce(texts)
+		if err == nil {
+			return vectors, nil
+		}
+		lastErr = err
+		time.Sleep(300 * time.Millisecond)
+	}
+	return nil, lastErr
+}
+
+func (c *Client) embedOnce(texts []string) ([][]float32, error) {
 	body, _ := json.Marshal(embedRequest{Model: c.model, Input: texts})
 	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/embeddings", bytes.NewReader(body))
 	if err != nil {
