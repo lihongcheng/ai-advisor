@@ -54,3 +54,49 @@ func TestChunkTextEmpty(t *testing.T) {
 		t.Fatalf("空文档应返回 0 个切片，实际 %d 个", len(chunks))
 	}
 }
+
+func TestChunkTextFAQEntries(t *testing.T) {
+	doc := `# 高血压人群饮食 FAQ
+
+## 高血压人群能吃盐吗？
+
+需要严格控盐，每日不超过 5 克。
+
+## 高血压人群能喝酒吗？
+
+建议戒酒或严格限量。`
+	chunks := ChunkText(doc)
+	if len(chunks) != 2 {
+		t.Fatalf("FAQ 应按条目切为 2 个切片，实际 %d 个: %v", len(chunks), chunks)
+	}
+	for _, c := range chunks {
+		if !strings.HasPrefix(c, "高血压人群饮食 FAQ\n## ") {
+			t.Fatalf("每个切片应带文档标题前缀并以条目开头: %q", c)
+		}
+	}
+	if !strings.Contains(chunks[0], "控盐") || strings.Contains(chunks[0], "戒酒") {
+		t.Fatalf("条目不应被合并或切散: %q", chunks[0])
+	}
+}
+
+func TestChunkTextFAQLongEntryHardSplit(t *testing.T) {
+	doc := "## 超长条目？\n\n" + strings.Repeat("一二三四五六七八九十", 100) // 1000 runes
+	chunks := ChunkText(doc)
+	if len(chunks) < 2 {
+		t.Fatalf("超长条目应硬切为多个切片，实际 %d 个", len(chunks))
+	}
+	first := []rune(chunks[0])
+	tail := string(first[len(first)-OverlapRunes:])
+	if !strings.Contains(chunks[1], tail) {
+		t.Fatalf("超长条目硬切后相邻切片应保留 %d 字重叠", OverlapRunes)
+	}
+}
+
+func TestChunkTextNoEntryFallsBack(t *testing.T) {
+	// 含 "##" 但不是行首条目结构（如行内出现），应回退段落切分
+	doc := "说明：评分标准是 100 ## 制。\n\n第二段内容。"
+	chunks := ChunkText(doc)
+	if len(chunks) != 1 || !strings.Contains(chunks[0], "## 制") {
+		t.Fatalf("无条目结构应回退通用切分: %v", chunks)
+	}
+}
